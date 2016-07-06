@@ -49,10 +49,6 @@ public class MainTest extends JavaPlugin implements Listener {
             });
             e.setCancelled(true);
         }
-        if (e.hasItem() && e.getItem().getType() == Material.GOLD_PICKAXE) {
-            new ProjectileScheduler("randomName", e.getPlayer().getWorld().spawnEntity(e.getPlayer().getLocation(), EntityType.COW), e.getPlayer(), 1.0F, this);
-            e.setCancelled(true);
-        }
     }
 
     @EventHandler
