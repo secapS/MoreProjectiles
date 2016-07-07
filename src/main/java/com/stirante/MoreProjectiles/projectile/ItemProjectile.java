@@ -1,12 +1,10 @@
 package com.stirante.MoreProjectiles.projectile;
 
-import com.google.common.base.Optional;
 import com.stirante.MoreProjectiles.TypedRunnable;
 import com.stirante.MoreProjectiles.event.CustomProjectileHitEvent;
 import com.stirante.MoreProjectiles.event.ItemProjectileHitEvent;
 import net.minecraft.server.v1_10_R1.*;
 import org.bukkit.Bukkit;
-import org.bukkit.Effect;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.block.BlockFace;
@@ -35,8 +33,6 @@ public class ItemProjectile extends EntityItem implements IProjectile, CustomPro
     private int age;
     private ArrayList<Material> ignoredMaterials = new ArrayList<>();
     private Field f;
-
-    private static final DataWatcherObject<Optional<net.minecraft.server.v1_10_R1.ItemStack>> c = DataWatcher.a(EntityItem.class, DataWatcherRegistry.f);
 
     /**
      * Instantiates a new item projectile.
@@ -329,13 +325,6 @@ public class ItemProjectile extends EntityItem implements IProjectile, CustomPro
     @Override
     public ArrayList<Material> getIgnoredBlocks() {
         return ignoredMaterials;
-    }
-
-    @Override
-    public net.minecraft.server.v1_10_R1.ItemStack getItemStack() {
-        Optional<net.minecraft.server.v1_10_R1.ItemStack> itemstack = getDataWatcher().get(c);
-
-        return itemstack.or(new net.minecraft.server.v1_10_R1.ItemStack(Blocks.STONE));
     }
 
     @Override
