@@ -1,9 +1,5 @@
 package com.stirante.MoreProjectiles;
 
-import com.stirante.MoreProjectiles.event.CustomProjectileHitEvent;
-import com.stirante.MoreProjectiles.event.CustomProjectileHitEvent.HitType;
-import com.stirante.MoreProjectiles.projectile.*;
-import org.bukkit.Effect;
 import org.bukkit.Material;
 import org.bukkit.entity.EntityType;
 import org.bukkit.event.EventHandler;
@@ -12,16 +8,24 @@ import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.java.JavaPlugin;
 
+import com.stirante.MoreProjectiles.event.CustomProjectileHitEvent;
+import com.stirante.MoreProjectiles.event.CustomProjectileHitEvent.HitType;
+import com.stirante.MoreProjectiles.projectile.BlockProjectile;
+import com.stirante.MoreProjectiles.projectile.CustomProjectile;
+import com.stirante.MoreProjectiles.projectile.ItemProjectile;
+import com.stirante.MoreProjectiles.projectile.OrbProjectile;
+import com.stirante.MoreProjectiles.projectile.ProjectileScheduler;
+
 /**
  * Simple test class.
  */
 public class MainTest extends JavaPlugin implements Listener {
-
+    
     @Override
     public void onEnable() {
         getServer().getPluginManager().registerEvents(this, this);
     }
-
+    
     @EventHandler
     public void onInteract(PlayerInteractEvent e) {
         if (e.hasItem() && e.getItem().getType() == Material.GOLD_AXE) {
@@ -29,14 +33,13 @@ public class MainTest extends JavaPlugin implements Listener {
             p.addTypedRunnable(new TypedRunnable<ItemProjectile>() {
                 @Override
                 public void run(ItemProjectile o) {
-                    o.getEntity().getWorld().spigot().playEffect(o.getEntity().getLocation(), Effect.HAPPY_VILLAGER);
+                    Particles.HAPPY_VILLAGER.display(o.getEntity().getLocation(), 0, 0, 0, 0, 1);
                 }
             });
             e.setCancelled(true);
         }
         if (e.hasItem() && e.getItem().getType() == Material.GOLD_HOE) {
-            BlockProjectile p = new BlockProjectile("randomNameBlock", e.getPlayer(), 1, 0, 1F);//creates block projectile from stone block
-            p.setKnockback(2);
+            new BlockProjectile("randomNameBlock", e.getPlayer(), 1, 0, 1F);//creates block projectile from stone block
             e.setCancelled(true);
         }
         if (e.hasItem() && e.getItem().getType() == Material.GOLD_SPADE) {
@@ -44,19 +47,23 @@ public class MainTest extends JavaPlugin implements Listener {
             p.addTypedRunnable(new TypedRunnable<OrbProjectile>() {
                 @Override
                 public void run(OrbProjectile o) {
-                    o.getEntity().getWorld().spigot().playEffect(o.getEntity().getLocation(), Effect.HAPPY_VILLAGER);
+                    Particles.HAPPY_VILLAGER.display(o.getEntity().getLocation(), 0, 0, 0, 0, 1);
                 }
             });
             e.setCancelled(true);
         }
+        if (e.hasItem() && e.getItem().getType() == Material.GOLD_PICKAXE) {
+            new ProjectileScheduler("randomName", e.getPlayer().getWorld().spawnEntity(e.getPlayer().getLocation(), EntityType.LEASH_HITCH), e.getPlayer(), 1.0F, this);
+            e.setCancelled(true);
+        }
     }
-
+    
     @EventHandler
     public void onHit(CustomProjectileHitEvent e) {
         if (e.getHitType() == HitType.ENTITY) {
-            e.getHitEntity().damage(3D * e.getDamageMultiplier(), e.getProjectile().getShooter());//if projectile hit entity, it damages this entity. Damage multiplier is based on velocity
+            e.getHitEntity().damage(3D, e.getProjectile().getShooter());//if projectile hit entity, it damages to this entity
         }
-        e.getProjectile().getEntity().getWorld().spigot().playEffect(e.getProjectile().getEntity().getLocation(), Effect.CRIT);
+        Particles.CRIT.display(e.getProjectile().getEntity().getLocation(), 0, 0, 0, 0.2F, 20);//plays crit particle at projectile location
     }
-
+    
 }

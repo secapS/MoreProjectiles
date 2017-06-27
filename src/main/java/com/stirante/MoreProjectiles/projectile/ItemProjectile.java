@@ -1,38 +1,54 @@
 package com.stirante.MoreProjectiles.projectile;
 
-import com.stirante.MoreProjectiles.TypedRunnable;
-import com.stirante.MoreProjectiles.event.CustomProjectileHitEvent;
-import com.stirante.MoreProjectiles.event.ItemProjectileHitEvent;
-import net.minecraft.server.v1_10_R1.*;
-import org.bukkit.Bukkit;
-import org.bukkit.Location;
-import org.bukkit.Material;
-import org.bukkit.block.BlockFace;
-import org.bukkit.craftbukkit.v1_10_R1.CraftWorld;
-import org.bukkit.craftbukkit.v1_10_R1.block.CraftBlock;
-import org.bukkit.craftbukkit.v1_10_R1.entity.CraftLivingEntity;
-import org.bukkit.craftbukkit.v1_10_R1.inventory.CraftItemStack;
-import org.bukkit.entity.EntityType;
-import org.bukkit.entity.LivingEntity;
-import org.bukkit.inventory.ItemStack;
-
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
 
+import net.minecraft.server.v1_7_R4.AxisAlignedBB;
+import net.minecraft.server.v1_7_R4.Block;
+import net.minecraft.server.v1_7_R4.Blocks;
+import net.minecraft.server.v1_7_R4.Entity;
+import net.minecraft.server.v1_7_R4.EntityHuman;
+import net.minecraft.server.v1_7_R4.EntityItem;
+import net.minecraft.server.v1_7_R4.EntityLiving;
+import net.minecraft.server.v1_7_R4.EnumMovingObjectType;
+import net.minecraft.server.v1_7_R4.IProjectile;
+import net.minecraft.server.v1_7_R4.Item;
+import net.minecraft.server.v1_7_R4.MathHelper;
+import net.minecraft.server.v1_7_R4.MinecraftServer;
+import net.minecraft.server.v1_7_R4.MovingObjectPosition;
+import net.minecraft.server.v1_7_R4.Vec3D;
+
+import org.bukkit.Bukkit;
+import org.bukkit.Location;
+import org.bukkit.Material;
+import org.bukkit.block.BlockFace;
+import org.bukkit.craftbukkit.v1_7_R4.CraftWorld;
+import org.bukkit.craftbukkit.v1_7_R4.block.CraftBlock;
+import org.bukkit.craftbukkit.v1_7_R4.entity.CraftLivingEntity;
+import org.bukkit.craftbukkit.v1_7_R4.inventory.CraftItemStack;
+import org.bukkit.entity.EntityType;
+import org.bukkit.entity.LivingEntity;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.util.Vector;
+
+import com.stirante.MoreProjectiles.Particles;
+import com.stirante.MoreProjectiles.TypedRunnable;
+import com.stirante.MoreProjectiles.event.CustomProjectileHitEvent;
+import com.stirante.MoreProjectiles.event.ItemProjectileHitEvent;
+
 /**
  * Projectile made from item entity
  */
-public class ItemProjectile extends EntityItem implements IProjectile, CustomProjectile<ItemProjectile> {
+public class ItemProjectile extends EntityItem implements IProjectile, CustomProjectile {
 
     private final EntityLiving shooter;
+    private int lastTick;
     private final String name;
     private final List<Runnable> runnables = new ArrayList<>();
     private final List<TypedRunnable<ItemProjectile>> typedRunnables = new ArrayList<>();
-    private int knockback;
-    private int age;
-    private ArrayList<Material> ignoredMaterials = new ArrayList<>();
-    private Field f;
+    private boolean ignoreSomeBlocks = false;
+    private final Vector bbv = new Vector(0.3F, 0.3F, 0.3F);
 
     /**
      * Instantiates a new item projectile.
@@ -49,8 +65,9 @@ public class ItemProjectile extends EntityItem implements IProjectile, CustomPro
         super(((CraftWorld) loc.getWorld()).getHandle(), loc.getX(), loc.getY(), loc.getZ(), null);
         if (CraftItemStack.asNMSCopy(itemstack) != null) setItemStack(CraftItemStack.asNMSCopy(itemstack));
         else
-            setItemStack(new net.minecraft.server.v1_10_R1.ItemStack(Item.getById(itemstack.getTypeId()), itemstack.getAmount(), itemstack.getData().getData()));
+            setItemStack(new net.minecraft.server.v1_7_R4.ItemStack(Item.getById(itemstack.getTypeId()), itemstack.getAmount(), itemstack.getData().getData()));
         if (itemstack.getTypeId() == 0) System.out.println("You cannot shoot air!");
+        lastTick = MinecraftServer.currentTick;
         this.name = name;
         this.pickupDelay = Integer.MAX_VALUE;
         this.shooter = ((CraftLivingEntity) shooter).getHandle();
@@ -60,17 +77,13 @@ public class ItemProjectile extends EntityItem implements IProjectile, CustomPro
         locY -= 0.10000000149011612D;
         locZ -= (MathHelper.sin(yaw / 180.0F * 3.1415927F) * 0.16F);
         setPosition(locX, locY, locZ);
+        height = 0.0F;
         float f = 0.4F;
         motX = (-MathHelper.sin(yaw / 180.0F * 3.1415927F) * MathHelper.cos(pitch / 180.0F * 3.1415927F) * f);
         motZ = (MathHelper.cos(yaw / 180.0F * 3.1415927F) * MathHelper.cos(pitch / 180.0F * 3.1415927F) * f);
         motY = (-MathHelper.sin(pitch / 180.0F * 3.1415927F) * f);
         shoot(motX, motY, motZ, power * 1.5F, 1.0F);
         world.addEntity(this);
-        try {
-            this.f = Entity.class.getDeclaredField("invulnerable");
-        } catch (NoSuchFieldException e) {
-            e.printStackTrace();
-        }
     }
 
     /**
@@ -84,6 +97,7 @@ public class ItemProjectile extends EntityItem implements IProjectile, CustomPro
      */
     public ItemProjectile(String name, LivingEntity shooter, org.bukkit.inventory.ItemStack item, float power) {
         super(((CraftLivingEntity) shooter).getHandle().world);
+        lastTick = MinecraftServer.currentTick;
         this.name = name;
         this.pickupDelay = Integer.MAX_VALUE;
         setItemStack(CraftItemStack.asNMSCopy(item));
@@ -94,60 +108,83 @@ public class ItemProjectile extends EntityItem implements IProjectile, CustomPro
         locY -= 0.10000000149011612D;
         locZ -= (MathHelper.sin(yaw / 180.0F * 3.1415927F) * 0.16F);
         setPosition(locX, locY, locZ);
+        height = 0.0F;
         float f = 0.4F;
         motX = (-MathHelper.sin(yaw / 180.0F * 3.1415927F) * MathHelper.cos(pitch / 180.0F * 3.1415927F) * f);
         motZ = (MathHelper.cos(yaw / 180.0F * 3.1415927F) * MathHelper.cos(pitch / 180.0F * 3.1415927F) * f);
         motY = (-MathHelper.sin(pitch / 180.0F * 3.1415927F) * f);
         shoot(motX, motY, motZ, power * 1.5F, 1.0F);
         world.addEntity(this);
-        try {
-            this.f = Entity.class.getDeclaredField("invulnerable");
-        } catch (NoSuchFieldException e) {
-            e.printStackTrace();
-        }
     }
 
+    @SuppressWarnings("rawtypes")
     @Override
-    public void m() {
-        U();
-        BlockPosition blockposition = new BlockPosition(locX, locY, locZ);
-        IBlockData iblockdata = world.getType(blockposition);
-        Block block = iblockdata.getBlock();
+    public void h() {
+        C();
+        int elapsedTicks = MinecraftServer.currentTick - this.lastTick;
+        this.pickupDelay -= elapsedTicks;
+        this.age += elapsedTicks;
+        lastTick = MinecraftServer.currentTick;
 
-        if (!ignoredMaterials.contains(Material.getMaterial(Block.getId(block)))) {
-            AxisAlignedBB axisalignedbb = iblockdata.c(world, blockposition);
+        this.lastX = this.locX;
+        this.lastY = this.locY;
+        this.lastZ = this.locZ;
+        this.motY -= 0.03999999910593033D;
+        this.X = j(this.locX, (this.boundingBox.b + this.boundingBox.e) / 2.0D, this.locZ);
+        move(this.motX, this.motY, this.motZ);
+        boolean flag = ((int) this.lastX != (int) this.locX) || ((int) this.lastY != (int) this.locY) || ((int) this.lastZ != (int) this.locZ);
 
-            if ((axisalignedbb != null) && (axisalignedbb.a(new Vec3D(locX, locY, locZ)))) {
-                float damageMultiplier = MathHelper.sqrt(motX * motX + motY * motY + motZ * motZ);
-                CustomProjectileHitEvent event = new ItemProjectileHitEvent(this, damageMultiplier, world.getWorld().getBlockAt((int) locX, (int) locY, (int) locZ), BlockFace.UP, getItem());
-                Bukkit.getPluginManager().callEvent(event);
-                if (!event.isCancelled()) {
-                    die();
-                }
+        if ((flag) || (this.ticksLived % 25 == 0)) {
+            if (this.world.getType(MathHelper.floor(this.locX), MathHelper.floor(this.locY), MathHelper.floor(this.locZ)) == net.minecraft.server.v1_7_R4.Block.b("lava")) {
+                this.motY = 0.2000000029802322D;
+                this.motX = ((this.random.nextFloat() - this.random.nextFloat()) * 0.2F);
+                this.motZ = ((this.random.nextFloat() - this.random.nextFloat()) * 0.2F);
+                makeSound("random.fizz", 0.4F, 2.0F + this.random.nextFloat() * 0.4F);
             }
         }
-        age += 1;
-        Vec3D vec3d = new Vec3D(locX, locY, locZ);
-        Vec3D vec3d1 = new Vec3D(locX + motX, locY + motY, locZ + motZ);
-        MovingObjectPosition movingobjectposition = world.rayTrace(vec3d, vec3d1, false, true, false);
 
-        vec3d = new Vec3D(locX, locY, locZ);
-        vec3d1 = new Vec3D(locX + motX, locY + motY, locZ + motZ);
-        if (movingobjectposition != null) {
-            vec3d1 = new Vec3D(movingobjectposition.pos.x, movingobjectposition.pos.y, movingobjectposition.pos.z);
+        float f = 0.98F;
+
+        if (this.onGround) {
+            f = 0.5880001F;
+            Block i = this.world.getType(MathHelper.floor(this.locX), MathHelper.floor(this.boundingBox.b) - 1, MathHelper.floor(this.locZ));
+
+            if (i != null) {
+                f = i.frictionFactor * 0.98F;
+            }
         }
 
+        this.motX *= f;
+        this.motY *= 0.9800000190734863D;
+        this.motZ *= f;
+        if (this.onGround) {
+            this.motY *= -0.5D;
+        }
+
+        if (this.age >= 1000) {
+            die();
+        }
+
+        Vec3D vec3d = Vec3D.a(locX, locY, locZ);
+        Vec3D vec3d1 = Vec3D.a(locX + motX, locY + motY, locZ + motZ);
+        MovingObjectPosition movingobjectposition = world.rayTrace(vec3d, vec3d1, false, true, false);
+
+        vec3d = Vec3D.a(this.locX, this.locY, this.locZ);
+        vec3d1 = Vec3D.a(this.locX + this.motX, this.locY + this.motY, this.locZ + this.motZ);
+        if (movingobjectposition != null)
+            vec3d1 = Vec3D.a(movingobjectposition.pos.a, movingobjectposition.pos.b, movingobjectposition.pos.c);
+
         Entity entity = null;
-        List list = world.getEntities(this, getBoundingBox().a(motX, motY, motZ).grow(1.0D, 1.0D, 1.0D));
+        List list = this.world.getEntities(this, this.boundingBox.a(this.motX, this.motY, this.motZ).grow(2.0D, 2.0D, 2.0D));
         double d0 = 0.0D;
+        EntityLiving entityliving = shooter;
 
         for (Object aList : list) {
             Entity entity1 = (Entity) aList;
 
-            if ((entity1.isCollidable()) && ((entity1 != shooter) || (age >= 5))) {
-                float f1 = 0.3F;
-                AxisAlignedBB axisalignedbb1 = entity1.getBoundingBox().grow(f1, f1, f1);
-                MovingObjectPosition movingobjectposition1 = axisalignedbb1.b(vec3d, vec3d1);
+            if ((entity1.R()) && ((entity1 != entityliving))) {
+                AxisAlignedBB axisalignedbb = entity1.boundingBox.grow(bbv.getX(), bbv.getY(), bbv.getZ());
+                MovingObjectPosition movingobjectposition1 = axisalignedbb.a(vec3d, vec3d1);
 
                 if (movingobjectposition1 != null) {
                     double d1 = vec3d.distanceSquared(movingobjectposition1.pos);
@@ -159,63 +196,49 @@ public class ItemProjectile extends EntityItem implements IProjectile, CustomPro
                 }
             }
         }
+
         if (entity != null) {
             movingobjectposition = new MovingObjectPosition(entity);
         }
-        if ((movingobjectposition != null) && (movingobjectposition.entity != null) && ((movingobjectposition.entity instanceof EntityHuman))) {
-            EntityHuman entityhuman = (EntityHuman) movingobjectposition.entity;
-            if ((entityhuman.abilities.isInvulnerable) || (((shooter instanceof EntityHuman)) && (!((EntityHuman) shooter).a(entityhuman)))) {
-                movingobjectposition = null;
-            }
-        }
+
         if (movingobjectposition != null) {
-            if (movingobjectposition.entity != null && movingobjectposition.entity instanceof EntityLiving) {
-                float damageMultiplier = MathHelper.sqrt(motX * motX + motY * motY + motZ * motZ);
-                CustomProjectileHitEvent event = new ItemProjectileHitEvent(this, damageMultiplier, (LivingEntity) movingobjectposition.entity.getBukkitEntity(), getItem());
+            if (movingobjectposition.type == EnumMovingObjectType.BLOCK && !isIgnored(world.getWorld().getBlockAt(movingobjectposition.b, movingobjectposition.c, movingobjectposition.d).getType())) {
+                CustomProjectileHitEvent event = new ItemProjectileHitEvent(this, world.getWorld().getBlockAt(movingobjectposition.b, movingobjectposition.c, movingobjectposition.d), CraftBlock.notchToBlockFace(movingobjectposition.face), getItem());
                 Bukkit.getPluginManager().callEvent(event);
                 if (!event.isCancelled()) {
-                    if (getKnockback() > 0) {
-                        float f4 = MathHelper.sqrt(motX * motX + motZ * motZ);
-                        if (f4 > 0.0F) {
-                            movingobjectposition.entity.g(motX * getKnockback() * 0.6000000238418579D / f4, 0.1D, motZ * getKnockback() * 0.6000000238418579D / f4);
-                        }
-                    }
+                    if (CraftItemStack.asCraftMirror(getItemStack()).getType().isBlock())
+                        Particles.displayBlockCrack(getBukkitEntity().getLocation(), Item.getId(getItemStack().getItem()), (byte) 0, 0F, 0F, 0F, 1F, 20);
+                    else
+                        Particles.displayIconCrack(getBukkitEntity().getLocation(), Item.getId(getItemStack().getItem()), 0F, 0F, 0F, 0.1F, 20);
                     die();
                 }
-            } else if (movingobjectposition.a() != null) {
-                if (!ignoredMaterials.contains(Material.getMaterial(Block.getId(block)))) {
-                    motX = ((float) (movingobjectposition.pos.x - locX));
-                    motY = ((float) (movingobjectposition.pos.y - locY));
-                    motZ = ((float) (movingobjectposition.pos.z - locZ));
-                    float f3 = MathHelper.sqrt(motX * motX + motY * motY + motZ * motZ);
-                    locX -= motX / f3 * 0.0500000007450581D;
-                    locY -= motY / f3 * 0.0500000007450581D;
-                    locZ -= motZ / f3 * 0.0500000007450581D;
-                    float damageMultiplier = MathHelper.sqrt(motX * motX + motY * motY + motZ * motZ);
-                    CustomProjectileHitEvent event = new ItemProjectileHitEvent(this, damageMultiplier, world.getWorld().getBlockAt((int) movingobjectposition.pos.x, (int) movingobjectposition.pos.y, (int) movingobjectposition.pos.z), CraftBlock.notchToBlockFace(movingobjectposition.direction), getItem());
+            } else if (movingobjectposition.entity != null && movingobjectposition.entity instanceof EntityLiving) {
+                LivingEntity living = (LivingEntity) movingobjectposition.entity.getBukkitEntity();
+                if(living != this.getShooter())
+                {
+                    CustomProjectileHitEvent event = new ItemProjectileHitEvent(this, living, getItem());
                     Bukkit.getPluginManager().callEvent(event);
                     if (!event.isCancelled()) {
+                        if (CraftItemStack.asCraftMirror(getItemStack()).getType().isBlock())
+                            Particles.displayBlockCrack(getBukkitEntity().getLocation(), Item.getId(getItemStack().getItem()), (byte) 0, 0F, 0F, 0F, 1F, 20);
+                        else
+                            Particles.displayIconCrack(getBukkitEntity().getLocation(), Item.getId(getItemStack().getItem()), 0F, 0F, 0F, 0.1F, 20);
                         die();
-                    }
+                    }	
                 }
             }
-        }
-
-        locX += motX;
-        locY += motY;
-        locZ += motZ;
-        float f3 = 0.99F;
-        float f1 = 0.05F;
-        motX *= f3;
-        motY *= f3;
-        motZ *= f3;
-        motY -= f1;
-        setPosition(locX, locY, locZ);
-        checkBlockCollisions();
-        if (isAlive()) {
-            if (this.age >= 1000) {
+        } else if (this.onGround) {
+            CustomProjectileHitEvent event = new ItemProjectileHitEvent(this, getBukkitEntity().getLocation().getBlock().getRelative(BlockFace.DOWN), BlockFace.UP, getItem());
+            Bukkit.getPluginManager().callEvent(event);
+            if (!event.isCancelled()) {
+                if (CraftItemStack.asCraftMirror(getItemStack()).getType().isBlock())
+                    Particles.displayBlockCrack(getBukkitEntity().getLocation(), Item.getId(getItemStack().getItem()), (byte) 0, 0F, 0F, 0F, 1F, 20);
+                else
+                    Particles.displayIconCrack(getBukkitEntity().getLocation(), Item.getId(getItemStack().getItem()), 0F, 0F, 0F, 0.1F, 20);
                 die();
             }
+        }
+        if (isAlive()) {
             for (Runnable r : runnables) {
                 r.run();
             }
@@ -263,13 +286,20 @@ public class ItemProjectile extends EntityItem implements IProjectile, CustomPro
     }
 
     @Override
-    public void d(EntityHuman entityhuman) {
+    public void b_(EntityHuman entityhuman) {
         if (entityhuman == shooter && age <= 3) return;
         LivingEntity living = entityhuman.getBukkitEntity();
-        CustomProjectileHitEvent event = new ItemProjectileHitEvent(this, 0.5F, living, getItem());
-        Bukkit.getPluginManager().callEvent(event);
-        if (!event.isCancelled()) {
-            die();
+        CustomProjectileHitEvent event = new ItemProjectileHitEvent(this, living, getItem());
+        if(living != this.getShooter())
+        {
+            Bukkit.getPluginManager().callEvent(event);
+            if (!event.isCancelled()) {
+                if (CraftItemStack.asCraftMirror(getItemStack()).getType().isBlock())
+                    Particles.displayBlockCrack(getBukkitEntity().getLocation(), Item.getId(getItemStack().getItem()), (byte) 0, 0F, 0F, 0F, 1F, 20);
+                else
+                    Particles.displayIconCrack(getBukkitEntity().getLocation(), Item.getId(getItemStack().getItem()), 0F, 0F, 0F, 0.1F, 20);
+                die();
+            }	
         }
     }
 
@@ -288,16 +318,12 @@ public class ItemProjectile extends EntityItem implements IProjectile, CustomPro
     }
 
     @Override
-    public boolean isInvulnerable() {
-        return getEntity().spigot().isInvulnerable();
-    }
-
-    @Override
     public void setInvulnerable(boolean value) {
         try {
+            Field f = getClass().getDeclaredField("invulnerable");
             f.setAccessible(true);
             f.set(this, value);
-        } catch (SecurityException | IllegalAccessException t) {
+        } catch (Throwable t) {
             t.printStackTrace();
         }
     }
@@ -312,29 +338,61 @@ public class ItemProjectile extends EntityItem implements IProjectile, CustomPro
         runnables.remove(r);
     }
 
+    @SuppressWarnings("unchecked")
     @Override
-    public void addTypedRunnable(TypedRunnable<ItemProjectile> r) {
-        typedRunnables.add(r);
+    public void addTypedRunnable(TypedRunnable<? extends CustomProjectile> r) {
+        typedRunnables.add((TypedRunnable<ItemProjectile>) r);
     }
 
     @Override
-    public void removeTypedRunnable(TypedRunnable<ItemProjectile> r) {
+    public void removeTypedRunnable(TypedRunnable<? extends CustomProjectile> r) {
         typedRunnables.remove(r);
     }
 
     @Override
-    public ArrayList<Material> getIgnoredBlocks() {
-        return ignoredMaterials;
+    public net.minecraft.server.v1_7_R4.ItemStack getItemStack() {
+        net.minecraft.server.v1_7_R4.ItemStack itemstack = getDataWatcher().getItemStack(10);
+
+        if (itemstack == null) {
+            return new net.minecraft.server.v1_7_R4.ItemStack(Blocks.STONE);
+        }
+        return itemstack;
+    }
+
+    private boolean isIgnored(Material m) {
+        if (!isIgnoringSomeBlocks()) return false;
+        switch (m) {
+            case AIR:
+            case GRASS:
+            case DOUBLE_PLANT:
+            case CROPS:
+            case CARROT:
+            case POTATO:
+            case SUGAR_CANE_BLOCK:
+            case DEAD_BUSH:
+            case LONG_GRASS:
+            case WATER:
+            case STATIONARY_WATER:
+            case SAPLING:
+                return true;
+            default:
+                return false;
+        }
     }
 
     @Override
-    public int getKnockback() {
-        return knockback;
+    public boolean isIgnoringSomeBlocks() {
+        return ignoreSomeBlocks;
     }
 
     @Override
-    public void setKnockback(int i) {
-        knockback = i;
+    public void setIgnoreSomeBlocks(boolean ignoreSomeBlocks) {
+        this.ignoreSomeBlocks = ignoreSomeBlocks;
+    }
+
+    @Override
+    public Vector getBoundingBoxSize() {
+        return bbv;
     }
 
 }

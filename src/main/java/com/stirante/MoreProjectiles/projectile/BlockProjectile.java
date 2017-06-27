@@ -1,37 +1,50 @@
 package com.stirante.MoreProjectiles.projectile;
 
-import com.stirante.MoreProjectiles.TypedRunnable;
-import com.stirante.MoreProjectiles.event.BlockProjectileHitEvent;
-import com.stirante.MoreProjectiles.event.CustomProjectileHitEvent;
-import net.minecraft.server.v1_10_R1.*;
-import org.bukkit.Bukkit;
-import org.bukkit.Effect;
-import org.bukkit.Location;
-import org.bukkit.Material;
-import org.bukkit.block.BlockFace;
-import org.bukkit.craftbukkit.v1_10_R1.CraftWorld;
-import org.bukkit.craftbukkit.v1_10_R1.block.CraftBlock;
-import org.bukkit.craftbukkit.v1_10_R1.entity.CraftLivingEntity;
-import org.bukkit.entity.EntityType;
-import org.bukkit.entity.LivingEntity;
-
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
 
+import net.minecraft.server.v1_7_R4.AxisAlignedBB;
+import net.minecraft.server.v1_7_R4.Block;
+import net.minecraft.server.v1_7_R4.Entity;
+import net.minecraft.server.v1_7_R4.EntityFallingBlock;
+import net.minecraft.server.v1_7_R4.EntityLiving;
+import net.minecraft.server.v1_7_R4.EnumMovingObjectType;
+import net.minecraft.server.v1_7_R4.IProjectile;
+import net.minecraft.server.v1_7_R4.MathHelper;
+import net.minecraft.server.v1_7_R4.MinecraftServer;
+import net.minecraft.server.v1_7_R4.MovingObjectPosition;
+import net.minecraft.server.v1_7_R4.Vec3D;
+
+import org.bukkit.Bukkit;
+import org.bukkit.Location;
+import org.bukkit.Material;
+import org.bukkit.block.BlockFace;
+import org.bukkit.craftbukkit.v1_7_R4.CraftWorld;
+import org.bukkit.craftbukkit.v1_7_R4.block.CraftBlock;
+import org.bukkit.craftbukkit.v1_7_R4.entity.CraftLivingEntity;
+import org.bukkit.entity.EntityType;
+import org.bukkit.entity.LivingEntity;
+import org.bukkit.util.Vector;
+
+import com.stirante.MoreProjectiles.Particles;
+import com.stirante.MoreProjectiles.TypedRunnable;
+import com.stirante.MoreProjectiles.event.BlockProjectileHitEvent;
+import com.stirante.MoreProjectiles.event.CustomProjectileHitEvent;
+
 /**
  * Projectile made from falling block entity.
  */
-public class BlockProjectile extends EntityFallingBlock implements CustomProjectile<BlockProjectile>, IProjectile {
+public class BlockProjectile extends EntityFallingBlock implements CustomProjectile, IProjectile {
 
     private final EntityLiving shooter;
+    private int lastTick;
+    private int age;
     private final String name;
     private final List<Runnable> runnables = new ArrayList<>();
     private final List<TypedRunnable<BlockProjectile>> typedRunnables = new ArrayList<>();
-    private int age;
-    private int knockback = 0;
-    private Field f;
-    private ArrayList<Material> ignoredMaterials = new ArrayList<>();
+    private boolean ignoreSomeBlocks = false;
+    private final Vector bbv = new Vector(1F, 1F, 1F);
 
     /**
      * Instantiates a new block projectile.
@@ -45,15 +58,17 @@ public class BlockProjectile extends EntityFallingBlock implements CustomProject
      * @param power   projectile power
      */
     public BlockProjectile(String name, Location loc, int blockId, int data, LivingEntity shooter, float power) {
-        super(((CraftWorld) loc.getWorld()).getHandle(), loc.getX(), loc.getY(), loc.getZ(), Block.getById(blockId).fromLegacyData(data));
+        super(((CraftWorld) loc.getWorld()).getHandle(), loc.getX(), loc.getY(), loc.getZ(), Block.getById(blockId), data);
         this.shooter = ((CraftLivingEntity) shooter).getHandle();
         this.name = name;
+        lastTick = MinecraftServer.currentTick;
         this.a(0.25F, 0.25F);
         setPositionRotation(loc.getX(), loc.getY(), loc.getZ(), loc.getYaw(), loc.getPitch());
         locX -= (MathHelper.cos(yaw / 180.0F * 3.1415927F) * 0.16F);
         locY -= 0.10000000149011612D;
         locZ -= (MathHelper.sin(yaw / 180.0F * 3.1415927F) * 0.16F);
         setPosition(locX, locY, locZ);
+        height = 0.0F;
         float f = 0.4F;
         motX = (-MathHelper.sin(yaw / 180.0F * 3.1415927F) * MathHelper.cos(pitch / 180.0F * 3.1415927F) * f);
         motZ = (MathHelper.cos(yaw / 180.0F * 3.1415927F) * MathHelper.cos(pitch / 180.0F * 3.1415927F) * f);
@@ -61,11 +76,6 @@ public class BlockProjectile extends EntityFallingBlock implements CustomProject
         shoot(motX, motY, motZ, power * 1.5F, 1.0F);
         world.addEntity(this);
         this.dropItem = false;
-        try {
-            this.f = Entity.class.getDeclaredField("invulnerable");
-        } catch (NoSuchFieldException e) {
-            e.printStackTrace();
-        }
     }
 
     /**
@@ -79,15 +89,17 @@ public class BlockProjectile extends EntityFallingBlock implements CustomProject
      * @param power   projectile power
      */
     public BlockProjectile(String name, LivingEntity shooter, int blockId, int data, float power) {
-        super(((CraftLivingEntity) shooter).getHandle().world, shooter.getLocation().getX(), shooter.getLocation().getX(), shooter.getLocation().getX(), Block.getByCombinedId(blockId + (data << 12)));
+        super(((CraftLivingEntity) shooter).getHandle().world, shooter.getLocation().getX(), shooter.getLocation().getX(), shooter.getLocation().getX(), Block.getById(blockId), data);
         this.shooter = ((CraftLivingEntity) shooter).getHandle();
         this.name = name;
+        lastTick = MinecraftServer.currentTick;
         this.a(0.25F, 0.25F);
         setPositionRotation(shooter.getLocation().getX(), shooter.getLocation().getY() + shooter.getEyeHeight(), shooter.getLocation().getZ(), shooter.getLocation().getYaw(), shooter.getLocation().getPitch());
         locX -= (MathHelper.cos(yaw / 180.0F * 3.1415927F) * 0.16F);
         locY -= 0.10000000149011612D;
         locZ -= (MathHelper.sin(yaw / 180.0F * 3.1415927F) * 0.16F);
         setPosition(locX, locY, locZ);
+        height = 0.0F;
         float f = 0.4F;
         motX = (-MathHelper.sin(yaw / 180.0F * 3.1415927F) * MathHelper.cos(pitch / 180.0F * 3.1415927F) * f);
         motZ = (MathHelper.cos(yaw / 180.0F * 3.1415927F) * MathHelper.cos(pitch / 180.0F * 3.1415927F) * f);
@@ -95,16 +107,12 @@ public class BlockProjectile extends EntityFallingBlock implements CustomProject
         shoot(motX, motY, motZ, power * 1.5F, 1.0F);
         world.addEntity(this);
         this.dropItem = false;
-        try {
-            this.f = Entity.class.getDeclaredField("invulnerable");
-        } catch (NoSuchFieldException e) {
-            e.printStackTrace();
-        }
     }
 
     @Override
     public void shoot(double d0, double d1, double d2, float f, float f1) {
         float f2 = MathHelper.sqrt(d0 * d0 + d1 * d1 + d2 * d2);
+
         d0 /= f2;
         d1 /= f2;
         d2 /= f2;
@@ -118,6 +126,7 @@ public class BlockProjectile extends EntityFallingBlock implements CustomProject
         motY = d1;
         motZ = d2;
         float f3 = MathHelper.sqrt(d0 * d0 + d2 * d2);
+
         lastYaw = yaw = (float) (Math.atan2(d0, d2) * 180.0D / 3.1415927410125732D);
         lastPitch = pitch = (float) (Math.atan2(d1, f3) * 180.0D / 3.1415927410125732D);
     }
@@ -137,47 +146,63 @@ public class BlockProjectile extends EntityFallingBlock implements CustomProject
         return (LivingEntity) shooter.getBukkitEntity();
     }
 
+    @SuppressWarnings("rawtypes")
     @Override
-    public void m() {
-        U();
-        BlockPosition blockposition = new BlockPosition(locX, locY, locZ);
-        IBlockData iblockdata = world.getType(blockposition);
-        Block block = iblockdata.getBlock();
+    public void h() {
+        C();
+        int elapsedTicks = MinecraftServer.currentTick - this.lastTick;
+        this.age += elapsedTicks;
+        lastTick = MinecraftServer.currentTick;
 
-        if (!ignoredMaterials.contains(Material.getMaterial(Block.getId(block)))) {
-            AxisAlignedBB axisalignedbb = iblockdata.c(world, blockposition);
+        this.lastX = this.locX;
+        this.lastY = this.locY;
+        this.lastZ = this.locZ;
+        this.motY -= 0.03999999910593033D;
+        this.X = j(this.locX, (this.boundingBox.b + this.boundingBox.e) / 2.0D, this.locZ);
+        move(this.motX, this.motY, this.motZ);
 
-            if ((axisalignedbb != null) && (axisalignedbb.a(new Vec3D(locX, locY, locZ)))) {
-                float damageMultiplier = MathHelper.sqrt(motX * motX + motY * motY + motZ * motZ);
-                CustomProjectileHitEvent event = new BlockProjectileHitEvent(this, damageMultiplier, world.getWorld().getBlockAt((int) locX, (int) locY, (int) locZ), BlockFace.UP, getMaterial(), getData());
-                Bukkit.getPluginManager().callEvent(event);
-                if (!event.isCancelled()) {
-                    die();
-                }
+        float f = 0.98F;
+
+        if (this.onGround) {
+            f = 0.5880001F;
+            Block i = this.world.getType(MathHelper.floor(this.locX), MathHelper.floor(this.boundingBox.b) - 1, MathHelper.floor(this.locZ));
+
+            if (i != null) {
+                f = i.frictionFactor * 0.98F;
             }
         }
-        age += 1;
-        Vec3D vec3d = new Vec3D(locX, locY, locZ);
-        Vec3D vec3d1 = new Vec3D(locX + motX, locY + motY, locZ + motZ);
-        MovingObjectPosition movingobjectposition = world.rayTrace(vec3d, vec3d1, false, true, false);
 
-        vec3d = new Vec3D(locX, locY, locZ);
-        vec3d1 = new Vec3D(locX + motX, locY + motY, locZ + motZ);
-        if (movingobjectposition != null) {
-            vec3d1 = new Vec3D(movingobjectposition.pos.x, movingobjectposition.pos.y, movingobjectposition.pos.z);
+        this.motX *= f;
+        this.motY *= 0.9800000190734863D;
+        this.motZ *= f;
+        if (this.onGround) {
+            this.motY *= -0.5D;
         }
 
+        if (this.age >= 1000) {
+            die();
+        }
+
+        Vec3D vec3d = Vec3D.a(locX, locY, locZ);
+        Vec3D vec3d1 = Vec3D.a(locX + motX, locY + motY, locZ + motZ);
+        MovingObjectPosition movingobjectposition = world.rayTrace(vec3d, vec3d1, false, true, false);
+
+        vec3d = Vec3D.a(this.locX, this.locY, this.locZ);
+        vec3d1 = Vec3D.a(this.locX + this.motX, this.locY + this.motY, this.locZ + this.motZ);
+        if (movingobjectposition != null)
+            vec3d1 = Vec3D.a(movingobjectposition.pos.a, movingobjectposition.pos.b, movingobjectposition.pos.c);
+
         Entity entity = null;
-        List list = world.getEntities(this, getBoundingBox().a(motX, motY, motZ).grow(2.0D, 2.0D, 2.0D));
+        List list = this.world.getEntities(this, this.boundingBox.a(this.motX, this.motY, this.motZ).grow(2.0D, 2.0D, 2.0D));
         double d0 = 0.0D;
+        EntityLiving entityliving = shooter;
 
         for (Object aList : list) {
             Entity entity1 = (Entity) aList;
 
-            if ((entity1.isCollidable()) && ((entity1 != shooter) || (age >= 5))) {
-                float f1 = 0.3F;
-                AxisAlignedBB axisalignedbb1 = entity1.getBoundingBox().grow(f1, f1, f1);
-                MovingObjectPosition movingobjectposition1 = axisalignedbb1.b(vec3d, vec3d1);
+            if ((entity1.R()) && ((entity1 != entityliving))) {
+                AxisAlignedBB axisalignedbb = entity1.boundingBox.grow(bbv.getX(), bbv.getY(), bbv.getZ());
+                MovingObjectPosition movingobjectposition1 = axisalignedbb.a(vec3d, vec3d1);
 
                 if (movingobjectposition1 != null) {
                     double d1 = vec3d.distanceSquared(movingobjectposition1.pos);
@@ -194,63 +219,32 @@ public class BlockProjectile extends EntityFallingBlock implements CustomProject
             movingobjectposition = new MovingObjectPosition(entity);
         }
 
-        if ((movingobjectposition != null) && (movingobjectposition.entity != null) && ((movingobjectposition.entity instanceof EntityHuman))) {
-            EntityHuman entityhuman = (EntityHuman) movingobjectposition.entity;
-
-            if ((entityhuman.abilities.isInvulnerable) || (((shooter instanceof EntityHuman)) && (!((EntityHuman) shooter).a(entityhuman)))) {
-                movingobjectposition = null;
-            }
-
-        }
-
         if (movingobjectposition != null) {
-            if (movingobjectposition.entity != null && movingobjectposition.entity instanceof EntityLiving) {
-                float damageMultiplier = MathHelper.sqrt(motX * motX + motY * motY + motZ * motZ);
-                CustomProjectileHitEvent event = new BlockProjectileHitEvent(this, damageMultiplier, (LivingEntity) movingobjectposition.entity.getBukkitEntity(), getMaterial(), getData());
+            if (movingobjectposition.type == EnumMovingObjectType.BLOCK && !isIgnored(world.getWorld().getBlockAt(movingobjectposition.b, movingobjectposition.c, movingobjectposition.d).getType())) {
+                CustomProjectileHitEvent event = new BlockProjectileHitEvent(this, world.getWorld().getBlockAt(movingobjectposition.b, movingobjectposition.c, movingobjectposition.d), CraftBlock.notchToBlockFace(movingobjectposition.face), getMaterial(), getData());
                 Bukkit.getPluginManager().callEvent(event);
                 if (!event.isCancelled()) {
-                    if (getKnockback() > 0) {
-                        float f4 = MathHelper.sqrt(motX * motX + motZ * motZ);
-                        if (f4 > 0.0F) {
-                            movingobjectposition.entity.g(motX * getKnockback() * 0.6000000238418579D / f4, 0.1D, motZ * getKnockback() * 0.6000000238418579D / f4);
-                        }
-                    }
+                    Particles.displayBlockCrack(getBukkitEntity().getLocation(), Block.getId(id), (byte) 0, 0F, 0F, 0F, 1F, 60);
                     die();
                 }
-            } else if (movingobjectposition.a() != null) {
-                if (!ignoredMaterials.contains(Material.getMaterial(Block.getId(block)))) {
-                    motX = ((float) (movingobjectposition.pos.x - locX));
-                    motY = ((float) (movingobjectposition.pos.y - locY));
-                    motZ = ((float) (movingobjectposition.pos.z - locZ));
-                    float f3 = MathHelper.sqrt(motX * motX + motY * motY + motZ * motZ);
-                    locX -= motX / f3 * 0.0500000007450581D;
-                    locY -= motY / f3 * 0.0500000007450581D;
-                    locZ -= motZ / f3 * 0.0500000007450581D;
-                    float damageMultiplier = MathHelper.sqrt(motX * motX + motY * motY + motZ * motZ);
-                    CustomProjectileHitEvent event = new BlockProjectileHitEvent(this, damageMultiplier, world.getWorld().getBlockAt((int) movingobjectposition.pos.x, (int) movingobjectposition.pos.y, (int) movingobjectposition.pos.z), CraftBlock.notchToBlockFace(movingobjectposition.direction), getMaterial(), getData());
-                    Bukkit.getPluginManager().callEvent(event);
-                    if (!event.isCancelled()) {
-                        die();
-                    }
+            } else if (movingobjectposition.entity != null && movingobjectposition.entity instanceof EntityLiving) {
+                LivingEntity living = (LivingEntity) movingobjectposition.entity.getBukkitEntity();
+                CustomProjectileHitEvent event = new BlockProjectileHitEvent(this, living, getMaterial(), getData());
+                Bukkit.getPluginManager().callEvent(event);
+                if (!event.isCancelled()) {
+                    Particles.displayBlockCrack(getBukkitEntity().getLocation(), Block.getId(id), (byte) 0, 0F, 0F, 0F, 1F, 60);
+                    die();
                 }
             }
-        }
-
-        locX += motX;
-        locY += motY;
-        locZ += motZ;
-        float f3 = 0.99F;
-        float f1 = 0.05F;
-        motX *= f3;
-        motY *= f3;
-        motZ *= f3;
-        motY -= f1;
-        setPosition(locX, locY, locZ);
-        checkBlockCollisions();
-        if (isAlive()) {
-            if (this.age >= 1000) {
+        } else if (this.onGround) {
+            CustomProjectileHitEvent event = new BlockProjectileHitEvent(this, getBukkitEntity().getLocation().getBlock().getRelative(BlockFace.DOWN), BlockFace.UP, getMaterial(), getData());
+            Bukkit.getPluginManager().callEvent(event);
+            if (!event.isCancelled()) {
+                Particles.displayBlockCrack(getBukkitEntity().getLocation(), Block.getId(id), (byte) 0, 0F, 0F, 0F, 1F, 60);
                 die();
             }
+        }
+        if (isAlive()) {
             for (Runnable r : runnables) {
                 r.run();
             }
@@ -272,7 +266,7 @@ public class BlockProjectile extends EntityFallingBlock implements CustomProject
      */
     @SuppressWarnings("deprecation")
     public Material getMaterial() {
-        return Material.getMaterial(getId());
+        return Material.getMaterial(Block.getId(id));
     }
 
     /**
@@ -281,20 +275,16 @@ public class BlockProjectile extends EntityFallingBlock implements CustomProject
      * @return the data
      */
     public int getData() {
-        return getBlock().getBlock().toLegacyData(getBlock());
-    }
-
-    @Override
-    public boolean isInvulnerable() {
-        return getEntity().spigot().isInvulnerable();
+        return data;
     }
 
     @Override
     public void setInvulnerable(boolean value) {
         try {
+            Field f = getClass().getDeclaredField("invulnerable");
             f.setAccessible(true);
             f.set(this, value);
-        } catch (SecurityException | IllegalAccessException t) {
+        } catch (Throwable t) {
             t.printStackTrace();
         }
     }
@@ -309,29 +299,50 @@ public class BlockProjectile extends EntityFallingBlock implements CustomProject
         runnables.remove(r);
     }
 
+    @SuppressWarnings("unchecked")
     @Override
-    public void addTypedRunnable(TypedRunnable<BlockProjectile> r) {
-        typedRunnables.add(r);
+    public void addTypedRunnable(TypedRunnable<? extends CustomProjectile> r) {
+        typedRunnables.add((TypedRunnable<BlockProjectile>) r);
     }
 
     @Override
-    public void removeTypedRunnable(TypedRunnable<BlockProjectile> r) {
+    public void removeTypedRunnable(TypedRunnable<? extends CustomProjectile> r) {
         typedRunnables.remove(r);
     }
 
-    @Override
-    public ArrayList<Material> getIgnoredBlocks() {
-        return ignoredMaterials;
+    private boolean isIgnored(Material m) {
+        if (!isIgnoringSomeBlocks()) return false;
+        switch (m) {
+            case AIR:
+            case GRASS:
+            case DOUBLE_PLANT:
+            case CROPS:
+            case CARROT:
+            case POTATO:
+            case SUGAR_CANE_BLOCK:
+            case DEAD_BUSH:
+            case LONG_GRASS:
+            case WATER:
+            case STATIONARY_WATER:
+            case SAPLING:
+                return true;
+            default:
+                return false;
+        }
     }
 
     @Override
-    public int getKnockback() {
-        return knockback;
+    public boolean isIgnoringSomeBlocks() {
+        return ignoreSomeBlocks;
     }
 
     @Override
-    public void setKnockback(int i) {
-        knockback = i;
+    public void setIgnoreSomeBlocks(boolean ignoreSomeBlocks) {
+        this.ignoreSomeBlocks = ignoreSomeBlocks;
     }
 
+    @Override
+    public Vector getBoundingBoxSize() {
+        return bbv;
+    }
 }
