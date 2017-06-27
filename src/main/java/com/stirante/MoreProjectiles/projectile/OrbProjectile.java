@@ -148,7 +148,7 @@ public class OrbProjectile extends EntityExperienceOrb implements CustomProjecti
 
     @SuppressWarnings("rawtypes")
     @Override
-    public void t_() {
+    public void h() {
         C();
         int elapsedTicks = MinecraftServer.currentTick - this.lastTick;
         this.age += elapsedTicks;
